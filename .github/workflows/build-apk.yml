@@ -1,0 +1,156 @@
+name: Build Android
+
+run-name: Build ${{ inputs.artifact || 'apk' }} ${{ inputs.versionName }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionCode:
+        description: versionCode
+        required: true
+        default: "1"
+      versionName:
+        description: versionName
+        required: true
+        default: "1.0.0"
+      artifact:
+        description: apk, aab, or both
+        required: false
+        default: apk
+        type: choice
+        options:
+          - apk
+          - aab
+          - both
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    environment:
+      name: mobile app ci cd workflow
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable Yarn 4.12
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+
+      - name: Install JS dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          corepack yarn install --immutable
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Check signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+        run: |
+          missing=0
+          if [ -z "$KEYSTORE_BASE64" ]; then echo "KEYSTORE_BASE64: MISSING"; missing=1; else echo "KEYSTORE_BASE64: set"; fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "KEYSTORE_PASSWORD: MISSING"; missing=1; else echo "KEYSTORE_PASSWORD: set"; fi
+          if [ -z "$KEY_ALIAS" ]; then echo "KEY_ALIAS: MISSING"; missing=1; else echo "KEY_ALIAS: set"; fi
+          if [ -z "$SIGNING_KEY_PASSWORD" ]; then echo "KEY_PASSWORD: MISSING"; missing=1; else echo "KEY_PASSWORD: set"; fi
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Signing secrets are empty. Push them from Appship Keystore, or add them on the GitHub environment."
+            exit 1
+          fi
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          keytool -list -keystore "$RUNNER_TEMP/release.keystore" -storepass "$KEYSTORE_PASSWORD" -storetype PKCS12 \
+            | grep -F "$KEY_ALIAS" \
+            || { echo "::error::Alias '$KEY_ALIAS' not found."; exit 1; }
+
+      - name: Write CI key.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          store = os.environ.get("KEYSTORE_PASSWORD") or ""
+          alias = os.environ.get("KEY_ALIAS") or ""
+          keypw = os.environ.get("KEY_PASSWORD") or store
+          store_file = os.path.join(os.environ["RUNNER_TEMP"], "release.keystore")
+          Path("android/key.properties").write_text(
+              f"storePassword={store}\nkeyPassword={keypw}\nkeyAlias={alias}\nstoreFile={store_file}\n"
+          )
+          PY
+
+      - name: Build release artifacts
+        working-directory: android
+        env:
+          ARTIFACT: ${{ github.event.inputs.artifact || 'apk' }}
+          KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+        run: |
+          case "$ARTIFACT" in
+            aab) tasks="bundleRelease" ;;
+            both) tasks="assembleRelease bundleRelease" ;;
+            *) tasks="assembleRelease" ;;
+          esac
+          echo "Gradle tasks: $tasks"
+          ./gradlew $tasks \
+            -PversionCode=${{ github.event.inputs.versionCode }} \
+            -PversionName=${{ github.event.inputs.versionName }} \
+            -PreactNativeArchitectures=arm64-v8a \
+            -PKEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
+            -PKEY_ALIAS="$KEY_ALIAS" \
+            -PKEY_PASSWORD="$KEY_PASSWORD" \
+            -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$SIGNING_KEY_PASSWORD"
+
+      - name: Upload APK
+        if: ${{ (github.event.inputs.artifact || 'apk') != 'aab' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload AAB
+        if: ${{ (github.event.inputs.artifact || 'apk') != 'apk' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
