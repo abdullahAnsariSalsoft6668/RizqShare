@@ -16,6 +16,7 @@ const aiRoutes = require('./routes/ai.routes');
 
 // Import middleware
 const { errorMiddleware } = require('./middleware/error.middleware');
+const { uploadDir } = require('./middleware/upload.middleware');
 
 const app = express();
 
@@ -55,7 +56,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Static files for uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(uploadDir));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

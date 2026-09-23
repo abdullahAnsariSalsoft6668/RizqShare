@@ -1,12 +1,41 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
-// Create uploads directory if it doesn't exist
-const uploadDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const projectUploadDir = path.join(__dirname, '../../uploads');
+const serverlessUploadDir = path.join(os.tmpdir(), 'rizqshare-uploads');
+
+const resolveUploadDir = () => {
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  return isServerless ? serverlessUploadDir : projectUploadDir;
+};
+
+const ensureDir = (dirPath) => {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    return dirPath;
+  } catch (error) {
+    if (dirPath !== serverlessUploadDir) {
+      try {
+        if (!fs.existsSync(serverlessUploadDir)) {
+          fs.mkdirSync(serverlessUploadDir, { recursive: true });
+        }
+        console.warn(`⚠️  Could not write ${dirPath}, using ${serverlessUploadDir}`);
+        return serverlessUploadDir;
+      } catch (fallbackError) {
+        console.warn('⚠️  Uploads directory unavailable:', fallbackError.message);
+        return null;
+      }
+    }
+    console.warn('⚠️  Uploads directory unavailable:', error.message);
+    return null;
+  }
+};
+
+const uploadDir = ensureDir(resolveUploadDir()) || serverlessUploadDir;
 
 // Configure storage
 const storage = multer.diskStorage({
@@ -21,13 +50,13 @@ const storage = multer.diskStorage({
     }
     
     const fullPath = path.join(uploadDir, folder);
-    
-    // Create folder if it doesn't exist
-    if (!fs.existsSync(fullPath)) {
-      fs.mkdirSync(fullPath, { recursive: true });
+    const created = ensureDir(fullPath);
+
+    if (!created) {
+      return cb(new Error('Upload storage is not available on this host'));
     }
-    
-    cb(null, fullPath);
+
+    cb(null, created);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -103,6 +132,7 @@ const deleteFile = (filePath) => {
 module.exports = {
   upload,
   handleUploadError,
-  deleteFile
+  deleteFile,
+  uploadDir
 };
 

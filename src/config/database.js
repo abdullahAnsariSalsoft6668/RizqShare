@@ -55,6 +55,9 @@ const connectDB = async () => {
 
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      return;
+    }
     process.exit(1);
   }
 };
