@@ -5,6 +5,7 @@ const Donation = require('../models/Donation');
 const openaiService = require('../config/openai');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { getDateRange } = require('../utils/helpers');
+const { resolveUserCurrency } = require('../constants/currencies');
 
 /**
  * @desc    Get AI financial advice
@@ -33,7 +34,7 @@ const getFinancialAdvice = asyncHandler(async (req, res) => {
     totalDonations,
     donationGoal: user.currentDonationGoal,
     remainingGoal: user.remainingDonationGoal,
-    currency: user.currency
+    currency: resolveUserCurrency(user)
   };
   
   try {

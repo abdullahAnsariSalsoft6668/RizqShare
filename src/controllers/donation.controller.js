@@ -2,11 +2,13 @@ const Donation = require('../models/Donation');
 const User = require('../models/User');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { paginate, buildPaginationResponse, getDateRange } = require('../utils/helpers');
+const { resolveUserCurrency, resolveTransactionCurrency, normalizeCurrency } = require('../constants/currencies');
+const { calculateDonationConsistency } = require('../utils/calculations');
 const {
-  calculateDonationProgress,
-  calculateRemainingGoal,
-  calculateDonationConsistency
-} = require('../utils/calculations');
+  getDonationObligations,
+  buildProgressMessage,
+  getProgressMetrics
+} = require('../services/donation-obligation.service');
 const moment = require('moment');
 
 /**
@@ -91,7 +93,8 @@ const getDonation = asyncHandler(async (req, res) => {
 const addDonation = asyncHandler(async (req, res) => {
   const donationData = {
     ...req.body,
-    user: req.userId
+    user: req.userId,
+    currency: resolveTransactionCurrency(req.body.currency, req.user)
   };
   
   const donation = await Donation.create(donationData);
@@ -109,9 +112,16 @@ const addDonation = asyncHandler(async (req, res) => {
  * @access  Private
  */
 const updateDonation = asyncHandler(async (req, res) => {
+  const updates = { ...req.body };
+  if (updates.currency == null || String(updates.currency).trim() === '') {
+    delete updates.currency;
+  } else {
+    updates.currency = normalizeCurrency(updates.currency);
+  }
+
   const donation = await Donation.findOneAndUpdate(
     { _id: req.params.id, user: req.userId },
-    req.body,
+    updates,
     { new: true, runValidators: true }
   );
   
@@ -289,7 +299,8 @@ const getDonationStats = asyncHandler(async (req, res) => {
         count: donations.length,
         average: averageDonation,
         growth: Math.round(growth * 100) / 100,
-        consistency
+        consistency,
+        currency: resolveUserCurrency(user)
       },
       byCategory,
       byMonth,
@@ -306,37 +317,59 @@ const getDonationStats = asyncHandler(async (req, res) => {
  */
 const getDonationProgress = asyncHandler(async (req, res) => {
   const { period = 'month' } = req.query;
-  
-  // Get user
   const user = await User.findById(req.userId);
-  
-  // Get date range
-  const { startDate, endDate } = getDateRange(period);
-  
-  // Get donations for the period
-  const donations = await Donation.find({
-    user: req.userId,
-    date: { $gte: startDate, $lte: endDate }
-  });
-  
-  const totalDonated = donations.reduce((sum, item) => sum + item.amount, 0);
-  const donationGoal = user.currentDonationGoal;
-  const remaining = calculateRemainingGoal(donationGoal, totalDonated);
-  const progress = calculateDonationProgress(totalDonated, donationGoal);
-  
+
+  if (!user) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'User not found'
+    });
+  }
+
+  const obligation = await getDonationObligations(user);
+  const metrics = getProgressMetrics(obligation);
+
   res.status(200).json({
     status: 'success',
     data: {
       period,
-      donationGoal,
-      totalDonated,
-      remaining,
-      progress: Math.round(progress * 100) / 100,
-      donationPercentage: user.donationPercentage,
-      message: progress >= 100 
-        ? '🎉 Congratulations! You have achieved your donation goal!' 
-        : `You have donated ${user.currency} ${totalDonated} of ${user.currency} ${donationGoal} goal.`
+      donationGoal: metrics.donationGoal,
+      totalDonated: metrics.totalDonated,
+      remaining: metrics.remaining,
+      progress: metrics.progress,
+      donationPercentage: obligation.donationPercentage,
+      currency: obligation.currency,
+      currentMonth: obligation.currentMonth,
+      carryOver: obligation.carryOver,
+      prepaid: obligation.prepaid,
+      totalPending: obligation.totalPending,
+      totalDueAllTime: obligation.totalDueAllTime,
+      totalPaidAllTime: obligation.totalPaidAllTime,
+      message: buildProgressMessage(obligation)
     }
+  });
+});
+
+/**
+ * @desc    Get monthly donation obligations (history)
+ * @route   GET /api/donations/obligations
+ * @access  Private
+ */
+const getDonationObligationsHistory = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.userId);
+
+  if (!user) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'User not found'
+    });
+  }
+
+  const obligation = await getDonationObligations(user, { months: req.query.months });
+
+  res.status(200).json({
+    status: 'success',
+    data: obligation
   });
 });
 
@@ -372,12 +405,13 @@ const exportDonations = asyncHandler(async (req, res) => {
     summary: {
       totalDonations: donations.reduce((sum, d) => sum + d.amount, 0),
       count: donations.length,
-      currency: user.currency
+      currency: resolveUserCurrency(user)
     },
     donations: donations.map(d => ({
       date: d.date,
       recipient: d.recipient,
       amount: d.amount,
+      currency: d.currency || resolveUserCurrency(user),
       purpose: d.purpose,
       category: d.category,
       transactionId: d.transactionId,
@@ -414,6 +448,7 @@ module.exports = {
   uploadReceipt,
   getDonationStats,
   getDonationProgress,
+  getDonationObligationsHistory,
   exportDonations
 };
 

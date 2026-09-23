@@ -2,6 +2,7 @@ const Expense = require('../models/Expense');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { paginate, buildPaginationResponse, getDateRange } = require('../utils/helpers');
 const { calculateExpenseDistribution } = require('../utils/calculations');
+const { resolveUserCurrency, resolveTransactionCurrency, normalizeCurrency } = require('../constants/currencies');
 const moment = require('moment');
 
 /**
@@ -87,7 +88,8 @@ const getExpense = asyncHandler(async (req, res) => {
 const addExpense = asyncHandler(async (req, res) => {
   const expenseData = {
     ...req.body,
-    user: req.userId
+    user: req.userId,
+    currency: resolveTransactionCurrency(req.body.currency, req.user)
   };
   
   const expense = await Expense.create(expenseData);
@@ -105,9 +107,16 @@ const addExpense = asyncHandler(async (req, res) => {
  * @access  Private
  */
 const updateExpense = asyncHandler(async (req, res) => {
+  const updates = { ...req.body };
+  if (updates.currency == null || String(updates.currency).trim() === '') {
+    delete updates.currency;
+  } else {
+    updates.currency = normalizeCurrency(updates.currency);
+  }
+
   const expense = await Expense.findOneAndUpdate(
     { _id: req.params.id, user: req.userId },
-    req.body,
+    updates,
     { new: true, runValidators: true }
   );
   
@@ -281,7 +290,8 @@ const getExpenseStats = asyncHandler(async (req, res) => {
         total: totalExpenses,
         count: expenses.length,
         average: averageExpense,
-        growth: Math.round(growth * 100) / 100
+        growth: Math.round(growth * 100) / 100,
+        currency: resolveUserCurrency(req.user)
       },
       distribution,
       topCategories,

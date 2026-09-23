@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { currencySchemaField } = require('../constants/currencies');
 
 const expenseSchema = new mongoose.Schema({
   user: {
@@ -22,11 +23,7 @@ const expenseSchema = new mongoose.Schema({
     min: [0, 'Amount cannot be negative']
   },
   
-  currency: {
-    type: String,
-    default: 'INR',
-    enum: ['INR', 'USD', 'EUR', 'GBP', 'AED']
-  },
+  currency: currencySchemaField(),
   
   category: {
     type: String,

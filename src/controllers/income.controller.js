@@ -1,6 +1,7 @@
 const Income = require('../models/Income');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { paginate, buildPaginationResponse, getDateRange } = require('../utils/helpers');
+const { resolveUserCurrency, resolveTransactionCurrency, normalizeCurrency } = require('../constants/currencies');
 const moment = require('moment');
 
 /**
@@ -78,7 +79,8 @@ const getIncome = asyncHandler(async (req, res) => {
 const addIncome = asyncHandler(async (req, res) => {
   const incomeData = {
     ...req.body,
-    user: req.userId
+    user: req.userId,
+    currency: resolveTransactionCurrency(req.body.currency, req.user)
   };
   
   const income = await Income.create(incomeData);
@@ -96,9 +98,16 @@ const addIncome = asyncHandler(async (req, res) => {
  * @access  Private
  */
 const updateIncome = asyncHandler(async (req, res) => {
+  const updates = { ...req.body };
+  if (updates.currency == null || String(updates.currency).trim() === '') {
+    delete updates.currency;
+  } else {
+    updates.currency = normalizeCurrency(updates.currency);
+  }
+
   const income = await Income.findOneAndUpdate(
     { _id: req.params.id, user: req.userId },
-    req.body,
+    updates,
     { new: true, runValidators: true }
   );
   
@@ -208,7 +217,8 @@ const getIncomeStats = asyncHandler(async (req, res) => {
         count: income.length,
         average: averageIncome,
         suggestedDonation,
-        growth: Math.round(growth * 100) / 100
+        growth: Math.round(growth * 100) / 100,
+        currency: resolveUserCurrency(req.user)
       },
       bySource,
       byMonth,

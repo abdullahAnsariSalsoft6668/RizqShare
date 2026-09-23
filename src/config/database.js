@@ -1,4 +1,27 @@
 const mongoose = require('mongoose');
+const { DEFAULT_CURRENCY } = require('../constants/currencies');
+
+const backfillMissingUserCurrency = async () => {
+  try {
+    const User = require('../models/User');
+    const result = await User.updateMany(
+      {
+        $or: [
+          { currency: { $exists: false } },
+          { currency: null },
+          { currency: '' }
+        ]
+      },
+      { $set: { currency: DEFAULT_CURRENCY } }
+    );
+
+    if (result.modifiedCount) {
+      console.log(`💱 Backfilled currency=${DEFAULT_CURRENCY} for ${result.modifiedCount} user(s)`);
+    }
+  } catch (error) {
+    console.warn('⚠️  Currency backfill skipped:', error.message);
+  }
+};
 
 const connectDB = async () => {
   try {
@@ -14,6 +37,8 @@ const connectDB = async () => {
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     console.log(`📦 Database: ${conn.connection.name}`);
+
+    await backfillMissingUserCurrency();
 
     // Handle connection events
     mongoose.connection.on('error', (err) => {

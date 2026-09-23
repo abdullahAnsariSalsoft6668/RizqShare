@@ -1,6 +1,19 @@
 const User = require('../models/User');
 const { generateToken } = require('../utils/helpers');
 const { asyncHandler } = require('../middleware/error.middleware');
+const {
+  DEFAULT_CURRENCY,
+  normalizeCurrency,
+  resolveUserCurrency
+} = require('../constants/currencies');
+
+const persistDefaultCurrency = async (user) => {
+  if (user && !user.currency) {
+    user.currency = DEFAULT_CURRENCY;
+    await User.updateOne({ _id: user._id }, { $set: { currency: DEFAULT_CURRENCY } });
+  }
+  return resolveUserCurrency(user);
+};
 
 /**
  * @desc    Register new user
@@ -8,7 +21,7 @@ const { asyncHandler } = require('../middleware/error.middleware');
  * @access  Public
  */
 const register = asyncHandler(async (req, res) => {
-  const { email, password, fullName, phoneNumber, donationPercentage } = req.body;
+  const { email, password, fullName, phoneNumber, donationPercentage, currency } = req.body;
 
   // Check if user already exists
   const existingUser = await User.findOne({ email });
@@ -25,7 +38,8 @@ const register = asyncHandler(async (req, res) => {
     password,
     fullName,
     phoneNumber,
-    donationPercentage: donationPercentage || 5
+    donationPercentage: donationPercentage || 5,
+    currency: normalizeCurrency(currency)
   });
 
   // Generate token
@@ -41,7 +55,7 @@ const register = asyncHandler(async (req, res) => {
         fullName: user.fullName,
         phoneNumber: user.phoneNumber,
         donationPercentage: user.donationPercentage,
-        currency: user.currency,
+        currency: resolveUserCurrency(user),
         subscriptionTier: user.subscriptionTier
       },
       token
@@ -77,8 +91,9 @@ const login = asyncHandler(async (req, res) => {
     });
   }
 
-  // Update last login
+  // Update last login and backfill missing currency
   user.lastLogin = Date.now();
+  await persistDefaultCurrency(user);
   await user.save({ validateBeforeSave: false });
 
   // Generate token
@@ -95,7 +110,7 @@ const login = asyncHandler(async (req, res) => {
         phoneNumber: user.phoneNumber,
         profilePicture: user.profilePicture,
         donationPercentage: user.donationPercentage,
-        currency: user.currency,
+        currency: resolveUserCurrency(user),
         subscriptionTier: user.subscriptionTier,
         givingScore: user.givingScore,
         totalDonated: user.totalDonated,
@@ -122,6 +137,8 @@ const getProfile = asyncHandler(async (req, res) => {
     });
   }
 
+  const currency = await persistDefaultCurrency(user);
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -131,7 +148,7 @@ const getProfile = asyncHandler(async (req, res) => {
         fullName: user.fullName,
         phoneNumber: user.phoneNumber,
         profilePicture: user.profilePicture,
-        currency: user.currency,
+        currency,
         donationPercentage: user.donationPercentage,
         monthlyIncomeTarget: user.monthlyIncomeTarget,
         monthlyExpenseLimit: user.monthlyExpenseLimit,
@@ -178,6 +195,14 @@ const updateProfile = asyncHandler(async (req, res) => {
     }
   });
 
+  if (updates.currency !== undefined) {
+    if (updates.currency == null || String(updates.currency).trim() === '') {
+      delete updates.currency;
+    } else {
+      updates.currency = normalizeCurrency(updates.currency);
+    }
+  }
+
   const user = await User.findByIdAndUpdate(
     req.userId,
     updates,
@@ -191,10 +216,13 @@ const updateProfile = asyncHandler(async (req, res) => {
     });
   }
 
+  const userPayload = user.toObject();
+  userPayload.currency = resolveUserCurrency(user);
+
   res.status(200).json({
     status: 'success',
     message: 'Profile updated successfully',
-    data: { user }
+    data: { user: userPayload }
   });
 });
 

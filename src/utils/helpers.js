@@ -12,16 +12,17 @@ const generateToken = (userId) => {
 /**
  * Format currency
  */
-const formatCurrency = (amount, currency = 'INR') => {
+const formatCurrency = (amount, currency = 'PKR') => {
   const symbols = {
-    INR: '₹',
+    PKR: 'Rs',
     USD: '$',
-    EUR: '€',
+    INR: '₹',
+    AED: 'AED',
     GBP: '£',
-    AED: 'AED'
+    EUR: '€'
   };
   
-  return `${symbols[currency] || currency} ${amount.toLocaleString('en-IN', {
+  return `${symbols[currency] || currency} ${amount.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })}`;

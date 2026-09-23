@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { currencySchemaField } = require('../constants/currencies');
 
 const donationSchema = new mongoose.Schema({
   user: {
@@ -22,11 +23,7 @@ const donationSchema = new mongoose.Schema({
     min: [0.01, 'Amount must be greater than 0']
   },
   
-  currency: {
-    type: String,
-    default: 'INR',
-    enum: ['INR', 'USD', 'EUR', 'GBP', 'AED']
-  },
+  currency: currencySchemaField(),
   
   // Purpose & Categorization
   purpose: {

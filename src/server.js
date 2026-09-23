@@ -1,9 +1,10 @@
-const app = require('./app');
-const connectDB = require('./config/database');
 const dotenv = require('dotenv');
 
-// Load environment variables
+// Load environment variables before requiring app modules
 dotenv.config();
+
+const app = require('./app');
+const connectDB = require('./config/database');
 
 const PORT = process.env.PORT || 5000;
 

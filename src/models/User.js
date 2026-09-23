@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { currencySchemaField } = require('../constants/currencies');
 
 const userSchema = new mongoose.Schema({
   // Authentication
@@ -38,11 +39,7 @@ const userSchema = new mongoose.Schema({
   },
   
   // Financial Settings
-  currency: {
-    type: String,
-    default: 'INR',
-    enum: ['INR', 'USD', 'EUR', 'GBP', 'AED']
-  },
+  currency: currencySchemaField(),
   donationPercentage: {
     type: Number,
     default: 5,

@@ -4,15 +4,19 @@ const Expense = require('../models/Expense');
 const Donation = require('../models/Donation');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { getDateRange } = require('../utils/helpers');
+const { resolveUserCurrency } = require('../constants/currencies');
 const {
   calculateSavings,
   calculateSavingsRate,
-  calculateDonationProgress,
   calculateExpenseDistribution,
   calculateTrend,
   calculateFinancialHealth,
   projectFutureDonations
 } = require('../utils/calculations');
+const {
+  getDonationObligations,
+  getProgressMetrics
+} = require('../services/donation-obligation.service');
 const moment = require('moment');
 
 /**
@@ -25,6 +29,13 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
   
   // Get user
   const user = await User.findById(req.userId);
+
+  if (!user) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'User not found'
+    });
+  }
   
   // Get date range
   const { startDate, endDate } = getDateRange(period);
@@ -44,11 +55,12 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
   // Calculate derived metrics
   const savings = calculateSavings(totalIncome, totalExpenses, totalDonations);
   const savingsRate = calculateSavingsRate(totalIncome, totalExpenses, totalDonations);
-  const donationGoal = user.currentDonationGoal;
-  const donationProgress = calculateDonationProgress(totalDonations, donationGoal);
+  const obligation = await getDonationObligations(user);
+  const obligationMetrics = getProgressMetrics(obligation);
   
   // Financial health score
   const financialHealth = calculateFinancialHealth(totalIncome, totalExpenses, totalDonations, savings);
+  const currency = resolveUserCurrency(user);
   
   res.status(200).json({
     status: 'success',
@@ -57,28 +69,33 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
       startDate,
       endDate,
       summary: {
+        currency,
         income: {
           total: totalIncome,
           count: income.length,
-          currency: user.currency
+          currency
         },
         expenses: {
           total: totalExpenses,
           count: expenses.length,
-          currency: user.currency
+          currency
         },
         donations: {
           total: totalDonations,
           count: donations.length,
-          goal: donationGoal,
-          progress: Math.round(donationProgress * 100) / 100,
-          remaining: Math.max(0, donationGoal - totalDonations),
-          currency: user.currency
+          goal: obligationMetrics.donationGoal,
+          progress: obligationMetrics.progress,
+          remaining: obligationMetrics.remaining,
+          thisMonthDue: obligation.currentMonth.due,
+          thisMonthPaid: obligation.currentMonth.paid,
+          carryOver: obligation.carryOver.remaining,
+          totalPending: obligation.totalPending,
+          currency
         },
         savings: {
           amount: savings,
           rate: Math.round(savingsRate * 100) / 100,
-          currency: user.currency
+          currency
         },
         scores: {
           givingScore: user.givingScore,
@@ -147,7 +164,7 @@ const getTrends = asyncHandler(async (req, res) => {
     data: {
       trends,
       trendDirections,
-      currency: user.currency
+      currency: resolveUserCurrency(user)
     }
   });
 });
@@ -190,21 +207,24 @@ const getGivingScore = asyncHandler(async (req, res) => {
     else consistencyScore = 20;
   }
   
+  const currency = resolveUserCurrency(user);
+  const donatedLabel = (amount) => `${currency} ${amount.toLocaleString('en-US')} Donated`;
+
   // Get milestones
   const milestones = [];
   
   if (donations.length >= 1) milestones.push({ name: 'First Donation', achieved: true });
   if (donations.length >= 10) milestones.push({ name: '10 Donations', achieved: true });
   if (donations.length >= 50) milestones.push({ name: '50 Donations', achieved: true });
-  if (user.totalDonated >= 10000) milestones.push({ name: '₹10,000 Donated', achieved: true });
-  if (user.totalDonated >= 50000) milestones.push({ name: '₹50,000 Donated', achieved: true });
+  if (user.totalDonated >= 10000) milestones.push({ name: donatedLabel(10000), achieved: true });
+  if (user.totalDonated >= 50000) milestones.push({ name: donatedLabel(50000), achieved: true });
   if (donationRate >= 5) milestones.push({ name: '5% Donation Rate', achieved: true });
   
   // Next milestone
   let nextMilestone = null;
   if (donations.length < 10) nextMilestone = { name: '10 Donations', remaining: 10 - donations.length };
   else if (donations.length < 50) nextMilestone = { name: '50 Donations', remaining: 50 - donations.length };
-  else if (user.totalDonated < 10000) nextMilestone = { name: '₹10,000 Donated', remaining: 10000 - user.totalDonated };
+  else if (user.totalDonated < 10000) nextMilestone = { name: donatedLabel(10000), remaining: 10000 - user.totalDonated };
   
   res.status(200).json({
     status: 'success',
@@ -232,7 +252,7 @@ const getGivingScore = asyncHandler(async (req, res) => {
       nextMilestone,
       totalDonations: donations.length,
       totalDonated: user.totalDonated,
-      currency: user.currency
+      currency
     }
   });
 });
@@ -282,7 +302,7 @@ const getCategoryBreakdown = asyncHandler(async (req, res) => {
       period,
       expenses: expenseDistribution,
       donations: donationDistribution,
-      currency: user.currency
+      currency: resolveUserCurrency(user)
     }
   });
 });
@@ -327,7 +347,7 @@ const getPredictions = asyncHandler(async (req, res) => {
         monthlySavings: Math.round(avgMonthlyIncome - avgMonthlyExpense - avgMonthlyDonation)
       },
       projections: donationProjections,
-      currency: user.currency,
+      currency: resolveUserCurrency(user),
       note: 'Predictions based on last 3 months of data'
     }
   });

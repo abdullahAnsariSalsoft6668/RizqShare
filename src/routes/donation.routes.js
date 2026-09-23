@@ -9,6 +9,7 @@ const {
   uploadReceipt,
   getDonationStats,
   getDonationProgress,
+  getDonationObligationsHistory,
   exportDonations
 } = require('../controllers/donation.controller');
 const { protect } = require('../middleware/auth.middleware');
@@ -18,7 +19,8 @@ const {
   donationValidation,
   objectIdValidation,
   dateRangeValidation,
-  paginationValidation
+  paginationValidation,
+  obligationMonthsValidation
 } = require('../utils/validators');
 
 // Apply authentication to all routes
@@ -27,6 +29,7 @@ router.use(protect);
 // Special routes (must be before /:id route)
 router.get('/stats', dateRangeValidation, handleValidationErrors, getDonationStats);
 router.get('/progress', dateRangeValidation, handleValidationErrors, getDonationProgress);
+router.get('/obligations', obligationMonthsValidation, handleValidationErrors, getDonationObligationsHistory);
 router.get('/export', dateRangeValidation, handleValidationErrors, exportDonations);
 
 // CRUD routes

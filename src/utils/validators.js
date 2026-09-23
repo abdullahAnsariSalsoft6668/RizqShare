@@ -1,4 +1,16 @@
 const { body, param, query } = require('express-validator');
+const { ALLOWED_CURRENCIES } = require('../constants/currencies');
+
+const currencyValidation = (optional = true) => {
+  const chain = body('currency');
+  if (optional) {
+    chain.optional({ values: 'falsy' });
+  }
+  return chain
+    .customSanitizer((value) => String(value).trim().toUpperCase())
+    .isIn(ALLOWED_CURRENCIES)
+    .withMessage('Invalid currency');
+};
 
 /**
  * Validation rules for user registration
@@ -16,7 +28,8 @@ const registerValidation = [
     .notEmpty()
     .withMessage('Full name is required')
     .isLength({ min: 2, max: 100 })
-    .withMessage('Full name must be between 2 and 100 characters')
+    .withMessage('Full name must be between 2 and 100 characters'),
+  currencyValidation()
 ];
 
 /**
@@ -45,10 +58,7 @@ const incomeValidation = [
   body('amount')
     .isFloat({ min: 0 })
     .withMessage('Amount must be a positive number'),
-  body('currency')
-    .optional()
-    .isIn(['INR', 'USD', 'EUR', 'GBP', 'AED'])
-    .withMessage('Invalid currency'),
+  currencyValidation(),
   body('date')
     .optional()
     .isISO8601()
@@ -83,10 +93,7 @@ const expenseValidation = [
       'insurance', 'personal', 'charity', 'other'
     ])
     .withMessage('Invalid category'),
-  body('currency')
-    .optional()
-    .isIn(['INR', 'USD', 'EUR', 'GBP', 'AED'])
-    .withMessage('Invalid currency'),
+  currencyValidation(),
   body('date')
     .optional()
     .isISO8601()
@@ -127,10 +134,7 @@ const donationValidation = [
       'environment', 'religious', 'community', 'other'
     ])
     .withMessage('Invalid category'),
-  body('currency')
-    .optional()
-    .isIn(['INR', 'USD', 'EUR', 'GBP', 'AED'])
-    .withMessage('Invalid currency'),
+  currencyValidation(),
   body('date')
     .optional()
     .isISO8601()
@@ -174,6 +178,13 @@ const paginationValidation = [
     .withMessage('Limit must be between 1 and 100')
 ];
 
+const obligationMonthsValidation = [
+  query('months')
+    .optional()
+    .isInt({ min: 1, max: 240 })
+    .withMessage('Months must be between 1 and 240')
+];
+
 /**
  * Validation rules for profile update
  */
@@ -192,10 +203,7 @@ const profileUpdateValidation = [
     .optional()
     .isFloat({ min: 0, max: 100 })
     .withMessage('Donation percentage must be between 0 and 100'),
-  body('currency')
-    .optional()
-    .isIn(['INR', 'USD', 'EUR', 'GBP', 'AED'])
-    .withMessage('Invalid currency')
+  currencyValidation()
 ];
 
 module.exports = {
@@ -207,6 +215,7 @@ module.exports = {
   objectIdValidation,
   dateRangeValidation,
   paginationValidation,
+  obligationMonthsValidation,
   profileUpdateValidation
 };
 

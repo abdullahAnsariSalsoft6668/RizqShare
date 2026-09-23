@@ -20,8 +20,9 @@ Content-Type: application/json
   "email": "user@example.com",
   "password": "password123",
   "fullName": "John Doe",
-  "phoneNumber": "+1234567890",
-  "donationPercentage": 5
+  "phoneNumber": "+923001234567",
+  "donationPercentage": 5,
+  "currency": "PKR"
 }
 ```
 
@@ -36,7 +37,7 @@ Content-Type: application/json
       "email": "user@example.com",
       "fullName": "John Doe",
       "donationPercentage": 5,
-      "currency": "INR"
+      "currency": "PKR"
     },
     "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   }
@@ -60,6 +61,19 @@ GET /api/auth/profile
 Authorization: Bearer <token>
 ```
 
+### Update Profile (currency)
+```bash
+PUT /api/auth/profile
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "currency": "GBP"
+}
+```
+
+Allowed currencies: `PKR`, `USD`, `INR`, `AED`, `GBP`, `EUR`. Invalid values return `400` with a field error on `currency`. Default for new users is `PKR`.
+
 ---
 
 ## 💰 Income Management
@@ -73,7 +87,7 @@ Content-Type: application/json
 {
   "source": "salary",
   "amount": 50000,
-  "currency": "INR",
+  "currency": "PKR",
   "description": "Monthly salary",
   "date": "2024-01-15",
   "frequency": "monthly"
@@ -90,6 +104,7 @@ Content-Type: application/json
       "_id": "64f5a1b2c3d4e5f6a7b8c9d1",
       "source": "salary",
       "amount": 50000,
+      "currency": "PKR",
       "suggestedDonation": 2500,
       "date": "2024-01-15T00:00:00.000Z"
     }
@@ -120,7 +135,8 @@ Authorization: Bearer <token>
       "count": 2,
       "average": 25000,
       "suggestedDonation": 2500,
-      "growth": 10.5
+      "growth": 10.5,
+      "currency": "PKR"
     },
     "bySource": {
       "salary": { "count": 1, "total": 50000 },
@@ -143,6 +159,7 @@ Content-Type: application/json
 {
   "title": "Grocery Shopping",
   "amount": 3500,
+  "currency": "PKR",
   "category": "food",
   "description": "Monthly groceries from supermarket",
   "date": "2024-01-16",
@@ -175,7 +192,8 @@ Authorization: Bearer <token>
       "total": 35000,
       "count": 15,
       "average": 2333.33,
-      "growth": -5.2
+      "growth": -5.2,
+      "currency": "PKR"
     },
     "distribution": {
       "food": { "amount": 10000, "percentage": 28.57 },
@@ -203,6 +221,7 @@ Content-Type: application/json
 {
   "recipient": "Local Orphanage",
   "amount": 5000,
+  "currency": "PKR",
   "purpose": "Monthly support for children's education",
   "category": "education",
   "date": "2024-01-20",
@@ -214,25 +233,60 @@ Content-Type: application/json
 
 ### Get Donation Progress
 ```bash
-GET /api/donations/progress?period=month
+GET /api/donations/progress
 Authorization: Bearer <token>
 ```
 
-**Response:**
+Monthly due is `donationPercentage` of that month’s income. Unpaid months carry forward. Donations apply FIFO (oldest unpaid month first).
+
+**Response (August leftover 10,000 + September due 10,000):**
 ```json
 {
   "status": "success",
   "data": {
     "period": "month",
-    "donationGoal": 2500,
-    "totalDonated": 1800,
-    "remaining": 700,
-    "progress": 72,
+    "donationGoal": 20000,
+    "totalDonated": 0,
+    "remaining": 20000,
+    "progress": 0,
     "donationPercentage": 5,
-    "message": "You have donated ₹ 1800 of ₹ 2500 goal."
+    "currency": "PKR",
+    "currentMonth": {
+      "yearMonth": "2026-09",
+      "incomeTotal": 200000,
+      "due": 10000,
+      "paid": 0,
+      "remaining": 10000
+    },
+    "carryOver": {
+      "remaining": 10000,
+      "months": [
+        {
+          "yearMonth": "2026-08",
+          "incomeTotal": 400000,
+          "due": 20000,
+          "paid": 10000,
+          "remaining": 10000,
+          "status": "partial"
+        }
+      ]
+    },
+    "prepaid": 0,
+    "totalPending": 20000,
+    "totalDueAllTime": 30000,
+    "totalPaidAllTime": 10000,
+    "message": "PKR 10000 due this month. PKR 10000 pending from previous months."
   }
 }
 ```
+
+### Get Monthly Obligations (history)
+```bash
+GET /api/donations/obligations?months=12
+Authorization: Bearer <token>
+```
+
+Returns the same ledger as progress, plus `data.months` (last N months when `months` is set). Use this for a history screen.
 
 ### Export Donations (CSV)
 ```bash
@@ -256,7 +310,8 @@ Authorization: Bearer <token>
       "count": 3,
       "average": 1666.67,
       "growth": 15.5,
-      "consistency": 80
+      "consistency": 80,
+      "currency": "PKR"
     },
     "byCategory": {
       "education": { "count": 2, "total": 3000 },
@@ -286,28 +341,33 @@ Authorization: Bearer <token>
   "data": {
     "period": "month",
     "summary": {
+      "currency": "PKR",
       "income": {
         "total": 50000,
         "count": 2,
-        "currency": "INR"
+        "currency": "PKR"
       },
       "expenses": {
         "total": 35000,
         "count": 15,
-        "currency": "INR"
+        "currency": "PKR"
       },
       "donations": {
         "total": 2500,
         "count": 3,
-        "goal": 2500,
-        "progress": 100,
-        "remaining": 0,
-        "currency": "INR"
+        "goal": 20000,
+        "progress": 0,
+        "remaining": 20000,
+        "thisMonthDue": 10000,
+        "thisMonthPaid": 0,
+        "carryOver": 10000,
+        "totalPending": 20000,
+        "currency": "PKR"
       },
       "savings": {
         "amount": 12500,
         "rate": 25,
-        "currency": "INR"
+        "currency": "PKR"
       },
       "scores": {
         "givingScore": 85,
@@ -357,7 +417,7 @@ Authorization: Bearer <token>
     "milestones": [
       { "name": "First Donation", "achieved": true },
       { "name": "10 Donations", "achieved": true },
-      { "name": "₹10,000 Donated", "achieved": true }
+      { "name": "PKR 10,000 Donated", "achieved": true }
     ],
     "nextMilestone": {
       "name": "50 Donations",
