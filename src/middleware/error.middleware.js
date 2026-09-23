@@ -53,6 +53,16 @@ const errorMiddleware = (err, req, res, next) => {
     error.message = 'File size too large';
   }
 
+  // Mongo / Mongoose connection timeouts
+  if (
+    err.name === 'MongooseError' ||
+    err.name === 'MongoServerSelectionError' ||
+    /buffering timed out|ECONNREFUSED|querySrv/i.test(err.message || '')
+  ) {
+    error.statusCode = 503;
+    error.message = 'Database unavailable. Check MONGODB_URI and Atlas network access.';
+  }
+
   res.status(error.statusCode || 500).json({
     status: 'error',
     message: error.message || 'Internal server error',

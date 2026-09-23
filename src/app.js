@@ -17,6 +17,7 @@ const aiRoutes = require('./routes/ai.routes');
 // Import middleware
 const { errorMiddleware } = require('./middleware/error.middleware');
 const { uploadDir } = require('./middleware/upload.middleware');
+const { ensureDatabase, isDatabaseConnected } = require('./config/database');
 
 const app = express();
 
@@ -64,11 +65,14 @@ app.get('/health', (req, res) => {
     status: 'success',
     message: 'RizqShare API is running',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    database: isDatabaseConnected() ? 'connected' : 'disconnected',
+    mongoUriConfigured: Boolean(process.env.MONGODB_URI)
   });
 });
 
 // API Routes
+app.use('/api', ensureDatabase);
 app.use('/api/auth', authRoutes);
 app.use('/api/income', incomeRoutes);
 app.use('/api/expenses', expenseRoutes);
